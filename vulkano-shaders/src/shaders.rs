@@ -251,20 +251,25 @@ fn parse_deps_file(
         input.split_at(index)
     }
 
-    fn take_until(input: &str, predicate: impl FnMut(char) -> bool) -> (&str, &str) {
-        let Some(index) = input.find(predicate) else {
-            return (input, "");
-        };
-
-        input.split_at(index)
-    }
-
     fn is_space(c: char) -> bool {
         c == ' '
     }
 
-    fn is_space_or_eol(c: char) -> bool {
-        c == ' ' || c == '\n'
+    /// Splits off the next token, which ends at the first space or new line that is not escaped.
+    /// slangc writes a space inside a path as `\ ` (Makefile syntax), and that space never
+    /// delimits; `\\` is an escaped backslash, so a space after it does.
+    fn take_token(input: &str) -> (&str, &str) {
+        let mut escaped = false;
+
+        for (index, c) in input.char_indices() {
+            match c {
+                ' ' | '\n' if !escaped => return input.split_at(index),
+                '\\' => escaped = !escaped,
+                _ => escaped = false,
+            }
+        }
+
+        (input, "")
     }
 
     fn found(input: &str) -> String {
@@ -312,14 +317,16 @@ fn parse_deps_file(
     // part of a path. What we do is that we treat a file extension followed by a single space as
     // an actual delimiter, and treat any other space as part of a path. This rules out file and/or
     // directory names that contain an extension followed by space(s), as well as file names
-    // without an extension.
+    // without an extension. slangc escapes the spaces of a path as `\ `, and those are always part
+    // of the path.
     loop {
         let (spaces, rest) = take_while(input, is_space);
-        let (token, rest) = take_until(rest, is_space_or_eol);
-        let has_extension = Path::new(token).extension().is_some();
+        let (token, rest) = take_token(rest);
 
         path.push_str(spaces);
-        path.push_str(token);
+        path.push_str(&token.replace("\\ ", " "));
+
+        let has_extension = Path::new(&path).extension().is_some();
 
         if has_extension {
             let normalized = {

@@ -774,62 +774,32 @@ fn include_paths_with_spaces_slangc() {
     )
     .unwrap_err();
 
-    // slangc preserves spaces in quoted include paths using make-escape (\ ) in the depfile,
-    assert!(err.contains("failed to parse dependencies file"));
+    // slangc preserves spaces in quoted include paths using make-escape (`\ `) in the depfile, so
+    // each escaped path is one token; a file name without an extension is refused as for shaderc.
+    assert!(err.contains("expected a file extension"));
 
-    let err = compile(
-        &MacroOptions::empty(),
-        &format!(
-            "
-                {shader_prefix}
-                #include \"include_dir_spaces/foo bar.glsl\"
-                {shader_suffix}
-            ",
-        ),
-        &root_path,
-        ShaderKind::Vertex,
-        Some(SourceLanguage::Slang),
-        &[],
-    )
-    .unwrap_err();
+    for name in ["foo bar.glsl", "foo.glsl bar", "foo.glsl bar.glsl"] {
+        let (_spirv, includes) = compile(
+            &MacroOptions::empty(),
+            &format!(
+                "
+                    {shader_prefix}
+                    #include \"include_dir_spaces/{name}\"
+                    {shader_suffix}
+                ",
+            ),
+            &root_path,
+            ShaderKind::Vertex,
+            Some(SourceLanguage::Slang),
+            &[],
+        )
+        .unwrap_or_else(|e| panic!("cannot resolve include file `{name}`: {e}"));
 
-    assert!(err.contains("failed to parse dependencies file"));
-
-    let err = compile(
-        &MacroOptions::empty(),
-        &format!(
-            "
-                {shader_prefix}
-                #include \"include_dir_spaces/foo.glsl bar\"
-                {shader_suffix}
-            ",
-        ),
-        &root_path,
-        ShaderKind::Vertex,
-        Some(SourceLanguage::Slang),
-        &[],
-    )
-    .unwrap_err();
-
-    assert!(err.contains("failed to parse dependencies file"));
-
-    let err = compile(
-        &MacroOptions::empty(),
-        &format!(
-            "
-                {shader_prefix}
-                #include \"include_dir_spaces/foo.glsl bar.glsl\"
-                {shader_suffix}
-            ",
-        ),
-        &root_path,
-        ShaderKind::Vertex,
-        Some(SourceLanguage::Slang),
-        &[],
-    )
-    .unwrap_err();
-
-    assert!(err.contains("failed to parse dependencies file"));
+        assert_eq!(
+            HashSet::from_iter(includes),
+            convert_paths(&root_path, &[PathBuf::from_iter(["include_dir_spaces", name])]),
+        );
+    }
 }
 
 fn include_many_paths(source_language: SourceLanguage, shader_prefix: &str, shader_suffix: &str) {
